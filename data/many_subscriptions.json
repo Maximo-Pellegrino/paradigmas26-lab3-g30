@@ -1,0 +1,82 @@
+[
+  {
+    "name": "wholesomememes",
+    "url": "https://www.reddit.com/r/wholesomememes/.json"
+  },
+  {
+    "name": "CasualConversation",
+    "url": "https://www.reddit.com/r/CasualConversation/.json"
+  },
+  {
+    "name": "MadeMeSmile",
+    "url": "https://www.reddit.com/r/MadeMeSmile/.json"
+  },
+  {
+    "name": "UpliftingNews",
+    "url": "https://www.reddit.com/r/UpliftingNews/.json"
+  },
+  {
+    "name": "Eyebleach",
+    "url": "https://www.reddit.com/r/Eyebleach/.json"
+  },
+  {
+    "name": "aww",
+    "url": "https://www.reddit.com/r/aww/.json"
+  },
+  {
+    "name": "AnimalsBeingBros",
+    "url": "https://www.reddit.com/r/AnimalsBeingBros/.json"
+  },
+  {
+    "name": "CozyPlaces",
+    "url": "https://www.reddit.com/r/CozyPlaces/.json"
+  },
+  {
+    "name": "HumanBeingBros",
+    "url": "https://www.reddit.com/r/HumansBeingBros/.json"
+  },
+  {
+    "name": "GetMotivated",
+    "url": "https://www.reddit.com/r/GetMotivated/.json"
+  },
+  {
+    "name": "simpleliving",
+    "url": "https://www.reddit.com/r/simpleliving/.json"
+  },
+  {
+    "name": "bropill",
+    "url": "https://www.reddit.com/r/bropill/.json"
+  },
+  {
+    "name": "happy",
+    "url": "https://www.reddit.com/r/happy/.json"
+  },
+  {
+    "name": "kindvoice",
+    "url": "https://www.reddit.com/r/KindVoice/.json"
+  },
+  {
+    "name": "MomForAMinute",
+    "url": "https://www.reddit.com/r/MomForAMinute/.json"
+  },
+  {
+    "name": "DadForAMinute",
+    "url": "https://www.reddit.com/r/DadForAMinute/.json"
+  },
+  {
+    "name": "toastme",
+    "url": "https://www.reddit.com/r/toastme/.json"
+  },
+  {
+    "name": "learnprogramming",
+    "url": "https://www.reddit.com/r/learnprogramming/.json"
+  },
+  {
+    "name": "scala",
+    "url": "https://www.reddit.com/r/scala/.json"
+  },
+  {
+    "name": "dataisbeautiful",
+    "url": "https://www.reddit.com/r/dataisbeautiful/.json"
+  }
+]

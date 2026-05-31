@@ -1,0 +1,113 @@
+# Lugares relevantes en tecnología
+New York
+San Francisco
+London
+Paris
+Tokyo
+Berlin
+Lausanne
+Seattle
+Austin
+Boston
+Amsterdam
+Stockholm
+Singapore
+Toronto
+Vancouver
+Sydney
+Melbourne
+Hong Kong
+Seoul
+Bangkok
+Dublin
+Barcelona
+Madrid
+Munich
+Stockholm
+Zurich
+Moscow
+São Paulo
+Mexico City
+Dubai
+Tel Aviv
+Bangalore
+Hyderabad
+Delhi
+Shanghai
+Beijing
+Shenzhen
+Hangzhou
+Guangzhou
+Chengdu
+Los Angeles
+San Diego
+Denver
+Chicago
+Portland
+Miami
+Atlanta
+Nashville
+Boulder
+Palo Alto
+Mountain View
+Sunnyvale
+Redwood City
+Santa Clara
+Santa Monica
+Berkeley
+Oakland
+Sacramento
+Vancouver
+Montreal
+Bangalore
+Pune
+Gurgaon
+Mumbai
+Kolkata
+Jakarta
+Bangkok
+Kuala Lumpur
+Manila
+Ho Chi Minh City
+Hanoi
+Da Nang
+Johannesburg
+Cape Town
+Cairo
+Lagos
+Nairobi
+Tel Aviv
+Istanbul
+Ankara
+Athens
+Sofia
+Budapest
+Prague
+Bratislava
+Krakow
+Warsaw
+Copenhagen
+Reykjavik
+Oslo
+Helsinki
+Vilnius
+Riga
+Tallin
+Geneva
+Bern
+Lucerne
+Basel
+Venice
+Rome
+Milan
+Naples
+Florence
+Lisbon
+Porto
+Seville
+Valencia
+Bilbao
+Valencia
+Valladolid
+Granada
+Malaga
