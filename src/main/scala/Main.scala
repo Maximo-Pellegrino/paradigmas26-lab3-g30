@@ -50,6 +50,15 @@ object Main {
     //
     // Todos los errores se manejan *dentro* del lambda para que una
     // suscripción fallida no cancele el resto del job de Spark.
+    // Por qué se hace así y no cada worker lee el archivo directamente:
+    // El archivo de suscripciones es pequeño y está en la máquina del driver.
+    // Sería más complejo hacer que cada worker lo lea, porque:
+    //     - Tendrían que saber dónde está el archivo
+    //     - Tendrían que tener acceso de red a esa máquina
+    // Leerían el mismo archivo múltiples veces
+    // Es más simple que el driver lo lea una vez y reparta el resultado. Para
+    // archivos grandes en producción se usaría HDFS o S3, donde todos los
+    // workers tienen acceso directo.
     val subsRDD = sc.parallelize(subscriptions)
 
     // Acumuladores para conteo por partición (seguros entre workers)
@@ -86,11 +95,6 @@ object Main {
         val chars = valid.map(p => p.title.length + p.selftext.length).sum
         totalCharsAcc.add(chars)
 
-        // flatMap espera que el lambda devuelva algo "iterable" por cada 
-        // elemento de entrada. Tanto List como Iterator funcionan, pero
-        // Iterator es más eficiente porque no carga todos los elementos en
-        // memoria a la vez, los va entregando de a uno a medida que Spark los
-        // consume.
         valid.iterator
       }
     }
@@ -136,14 +140,8 @@ object Main {
     }
 
     // 8. Cargar diccionario en el driver y hacer broadcast
+    // loadAll ya imprimió el error de directorio no encontrado si corresponde.
     val dictionary: List[NamedEntity] = Dictionary.loadAll(cmdArgs.entitiesDir)
-
-    if (dictionary.isEmpty) {
-      // loadAll ya imprimió el error de directorio no encontrado si corresponde.
-      // Podríamos continuar pero no habría entidades; terminamos temprano.
-      spark.stop()
-      return
-    }
 
     val dictBroadcast = sc.broadcast(dictionary)
 
