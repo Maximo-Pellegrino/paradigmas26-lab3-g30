@@ -1,76 +1,188 @@
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.SparkContext
+
 object Main {
   def main(args: Array[String]): Unit = {
-    // Parse command-line arguments
+
+    // 1. Parsear argumentos de línea de comandos
     val cmdArgs = CommandLineArgs.parse(args) match {
       case Some(parsed) => parsed
-      case None => return // scopt prints error messages
+      case None         => return
     }
 
-    // Load subscriptions
-    val subscriptionOpts = FileIO.readSubscriptions(cmdArgs.subscriptionFile)
+    // 2. Crear SparkSession (modo local)
+    // SparkSession es el punto de entrada a Spark. Se construye con un patrón
+    // builder, es decir, se encadenan opciones antes de crearlo
+    val spark = SparkSession.builder() 
+      .appName("RedditNER") // el nombre que aparece en los logs y en la UI de Spark
+      .master("local[*]") //  dónde corre Spark
+      .getOrCreate() //si ya existe una sesión activa la reutiliza, si no crea una nueva
 
-    // Filter out malformed subscriptions (None values)
-    val subscriptions = subscriptionOpts.flatten
+    // Por defecto Spark imprime muchísimos logs. Con WARN solo muestra
+    // advertencias y errores, así la salida del programa es legible.
+    spark.sparkContext.setLogLevel("WARN")
 
-    // Download feeds and parse posts, tracking success/failure
-    val downloadResults = subscriptions.map { subscription =>
-      val feedOpt = FileIO.downloadFeed(subscription.url)
-      val posts = feedOpt.fold(List[Post]())(JsonParser.parsePosts(_, subscription.name))
-      (feedOpt.isDefined, posts)
-    }
+    // SparkSession es la API moderna (para DataFrames, SQL). SparkContext es
+    // la API de más bajo nivel, necesaria para trabajar con RDDs como hace
+    // este programa. Se extrae del spark para usarlo más cómodamente después,
+    // por ejemplo en sc.parallelize(...) o sc.longAccumulator(...).
+    val sc: SparkContext = spark.sparkContext
 
-    // Count feed successes/failures
-    val feedsSuccess = downloadResults.count(_._1)
-    val feedsFailed = downloadResults.length - feedsSuccess
+    // 3. Cargar suscripciones (driver, I/O secuencial)
+    // readSubscriptions ya imprime errores y termina en fallos fatales.
+    val subscriptions: List[Subscription] =
+      FileIO.readSubscriptions(cmdArgs.subscriptionFile)
 
-    // Flatten all posts and count JSON parse failures
-    val allPosts = downloadResults.flatMap(_._2)
-    val postsSuccess = allPosts.length
-    val postsFailed = downloadResults.count(_._2.isEmpty)
-
-    // Filter empty posts
-    val filteredPosts = Analyzer.filterEmptyPosts(allPosts)
-    val postsFiltered = allPosts.length - filteredPosts.length
-
-    // Calculate average characters in filtered posts
-    val totalChars = filteredPosts.map(post => post.title.length + post.selftext.length).sum
-    val avgChars = if (filteredPosts.nonEmpty) totalChars / filteredPosts.length else 0
-
-    // Prepare statistics
-    val stats = Map(
-      "feedsSuccess" -> feedsSuccess,
-      "feedsFailed" -> feedsFailed,
-      "postsSuccess" -> postsSuccess,
-      "postsFailed" -> postsFailed,
-      "postsFiltered" -> postsFiltered,
-      "avgChars" -> avgChars
-    )
-
-    // Print output
-    println(Formatters.formatProcessingStats(stats))
-    println()
-
-    // Check if we have any posts to process
-    if (filteredPosts.isEmpty) {
-      println("Error: No valid posts downloaded after filtering")
+    if (subscriptions.isEmpty) {
+      println("Error: No valid subscriptions found")
+      spark.stop()
       return
     }
 
-    // Load dictionaries
-    val dictionary = Dictionary.loadAll(cmdArgs.entitiesDir)
+    // 4. Distribuir suscripciones y descargar feeds en paralelo
+    //
+    // Cada elemento del RDD es una Subscription.
+    // El flatMap:
+    //   a) intenta descargar el feed      -> registra feedSuccess / feedFailed
+    //   b) intenta parsear los posts      -> registra postsSuccess / postsFailed
+    //   c) filtra posts vacíos inline     -> registra postsFiltered
+    //   d) devuelve un iterador de objetos Post válidos (no vacíos)
+    //
+    // Todos los errores se manejan *dentro* del lambda para que una
+    // suscripción fallida no cancele el resto del job de Spark.
+    val subsRDD = sc.parallelize(subscriptions)
 
-    // Detect entities in all posts (combine title and selftext)
-    val allEntities = filteredPosts.flatMap { post =>
-      val combinedText = post.title + " " + post.selftext
-      Analyzer.detectEntities(combinedText, dictionary)
+    // Acumuladores para conteo por partición (seguros entre workers)
+    val feedSuccessAcc  = sc.longAccumulator("feedsSuccess")
+    val feedFailedAcc   = sc.longAccumulator("feedsFailed")
+    val postSuccessAcc  = sc.longAccumulator("postsSuccess")
+    val postFailedAcc   = sc.longAccumulator("postsFailed")
+    val postFilteredAcc = sc.longAccumulator("postsFiltered")
+    val totalCharsAcc   = sc.longAccumulator("totalChars")
+
+    // RDD[Post] — ya filtrado (título y selftext no vacíos)
+    val filteredPostsRDD = subsRDD.flatMap { subscription =>
+      val feedOpt: Option[String] = FileIO.downloadFeed(subscription)
+
+      if (feedOpt.isEmpty) {
+        feedFailedAcc.add(1)
+        Iterator.empty
+      } else {
+        feedSuccessAcc.add(1)
+
+        val rawPosts: List[Post] =
+          JsonParser.parsePosts(feedOpt.get, subscription)
+
+        postSuccessAcc.add(rawPosts.length)
+
+        val valid = rawPosts.filter { post =>
+          post.title.nonEmpty &&
+          post.selftext.nonEmpty &&
+          post.selftext.trim.nonEmpty
+        }
+
+        postFilteredAcc.add(rawPosts.length - valid.length)
+
+        val chars = valid.map(p => p.title.length + p.selftext.length).sum
+        totalCharsAcc.add(chars)
+
+        // flatMap espera que el lambda devuelva algo "iterable" por cada 
+        // elemento de entrada. Tanto List como Iterator funcionan, pero
+        // Iterator es más eficiente porque no carga todos los elementos en
+        // memoria a la vez, los va entregando de a uno a medida que Spark los
+        // consume.
+        valid.iterator
+      }
     }
 
-    // Count entities
-    val entityCounts = Analyzer.countEntities(allEntities)
-    val typeStats = Analyzer.countByType(allEntities)
+    // 5. Disparar el cómputo del RDD con count
+    //
+    // Cacheamos el RDD porque lo vamos a recorrer de nuevo para detectar
+    // entidades.
+    // Teoricamente esto es parte del ej 5 pero lo dejo pusheado asi dps
+    // tenemos menos laburo.
+    filteredPostsRDD.cache()
+    val totalValid = filteredPostsRDD.count()
 
+    // 6. Imprimir estadísticas de procesamiento
+    val avgChars: Long =
+      if (totalValid > 0) totalCharsAcc.value / totalValid else 0L
+
+    // postsFailed cuenta los feeds que no produjeron posts (fallos de parseo)
+    val postsFailed = subsRDD.filter { sub =>
+      FileIO.downloadFeed(sub).exists(json =>
+        JsonParser.parsePosts(json, sub).isEmpty
+      )
+    }.count()
+    // Nota: la re-descarga de arriba sería muy costosa en producción;
+    // para mayor precisión nos apoyamos en los acumuladores del primer pasaje.
+    val stats = Map(
+      "feedsSuccess"  -> feedSuccessAcc.value.toInt,
+      "feedsFailed"   -> feedFailedAcc.value.toInt,
+      "postsSuccess"  -> postSuccessAcc.value.toInt,
+      "postsFailed"   -> postFailedAcc.value.toInt,
+      "postsFiltered" -> postFilteredAcc.value.toInt,
+      "avgChars"      -> avgChars.toInt
+    )
+
+    println(Formatters.formatProcessingStats(stats))
+    println()
+
+    // 7. Guardia: ningún post válido
+    if (totalValid == 0) {
+      println("Error: No valid posts downloaded after filtering")
+      spark.stop()
+      return
+    }
+
+    // 8. Cargar diccionario en el driver y hacer broadcast
+    val dictionary: List[NamedEntity] = Dictionary.loadAll(cmdArgs.entitiesDir)
+
+    if (dictionary.isEmpty) {
+      // loadAll ya imprimió el error de directorio no encontrado si corresponde.
+      // Podríamos continuar pero no habría entidades; terminamos temprano.
+      spark.stop()
+      return
+    }
+
+    val dictBroadcast = sc.broadcast(dictionary)
+
+    // 9. Detectar entidades (distribuido)
+    val allEntitiesRDD = filteredPostsRDD.flatMap { post =>
+      val combinedText = post.title + " " + post.selftext
+      Analyzer.detectEntities(combinedText, dictBroadcast.value)
+    }
+
+    // 10. Contar entidades (reduceByKey distribuido)
+    // reduceByKey: Es un groupBy + op en un solo paso distribuido. Toma pares
+    // (clave, valor) y combina todos los valores que tienen la misma clave
+    // usando una función, en este caso _ + _ (suma).
+    // Ver cómo spark lo distribuye en informe.md
+    val entityCountsRDD = allEntitiesRDD
+      .map(e => ((e.entityType, e.text), 1))
+      .reduceByKey(_ + _)
+
+    val typeCountsRDD = allEntitiesRDD
+      .map(e => (e.entityType, 1))
+      .reduceByKey(_ + _)
+
+    // Colectar en el driver para formatear (conjuntos de resultados pequeños)
+    // collect() trae todos los datos de los workers al driver, convirtiendo el
+    // RDD en un array normal de Scala.
+    val entityCounts: Map[(String, String), Int] =
+      entityCountsRDD.collect().toMap
+
+    val typeCountsMap: Map[String, Int] =
+      typeCountsRDD.collect().toMap
+
+    val totalEntities = allEntitiesRDD.count()
+    val typeStats     = typeCountsMap + ("total" -> totalEntities.toInt)
+
+    // 11. Imprimir estadísticas de entidades
     println(Formatters.formatTypeStats(typeStats))
     println()
     println(Formatters.formatEntityStats(entityCounts, cmdArgs.topK))
+
+    spark.stop()
   }
 }
