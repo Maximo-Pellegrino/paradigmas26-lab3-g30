@@ -28,9 +28,16 @@ Largo promedio en posts: $avgChars"""
    * @return formatted entity statistics string
    */
   def formatTypeStats(typeStats: Map[String, Int]): String = {
+
+    // Precondición: typeStats esta ordenado por su campo Int en orden decreciente y nombre por desempate
+
     val total = typeStats.getOrElse("total", 0)
+    
     val entityTypes = List("Person", "Organization", "University", "Place", "Technology", "ProgrammingLanguage")
-    val typeLines = entityTypes.map { entityType =>
+   
+    val typeLines = entityTypes
+    .sortBy(entityType =>  (-typeStats.getOrElse(entityType,0), entityType))
+    .map { entityType =>
       val count = typeStats.getOrElse(entityType, 0)
       s"    [$entityType]: $count"
     }.mkString("\n")
