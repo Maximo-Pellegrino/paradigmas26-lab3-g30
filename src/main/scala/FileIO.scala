@@ -79,7 +79,7 @@ object FileIO {
       source.close()
       Some(lines)
     } catch {
-      case _: Exception => None
+      case _: Exception => println(s"Error: entities directory '$filePath' not found")
     }
   }
 }
