@@ -81,16 +81,18 @@ object Main {
 
         val rawPosts: List[Post] =
           JsonParser.parsePosts(feedOpt.get, subscription)
-
-        postSuccessAcc.add(rawPosts.length)
+        if (rawPosts.isEmpty) {
+          postFailedAcc.add(1)  // feed ok pero sin posts
+        } else {
+          postSuccessAcc.add(rawPosts.length)
+        }
 
         val valid = rawPosts.filter { post =>
           post.title.nonEmpty &&
-          post.selftext.nonEmpty &&
           post.selftext.trim.nonEmpty
         }
 
-        postFilteredAcc.add(rawPosts.length - valid.length)
+        postFilteredAcc.add(valid.length)
 
         val chars = valid.map(p => p.title.length + p.selftext.length).sum
         totalCharsAcc.add(chars)
@@ -99,25 +101,15 @@ object Main {
       }
     }
 
-    // 5. Disparar el cómputo del RDD con count
-    //
-    // Cacheamos el RDD porque lo vamos a recorrer de nuevo para detectar
-    // entidades.
-    // Teoricamente esto es parte del ej 5 pero lo dejo pusheado asi dps
-    // tenemos menos laburo.
-    filteredPostsRDD.cache()
-    val totalValid = filteredPostsRDD.count()
+        // 7. Guardia: ningún post válido
+    if (postFilteredAcc.value.toInt == 0) {
+      println("Error: No valid posts downloaded after filtering")
+      spark.stop()
+      return
+    }
 
-    // 6. Imprimir estadísticas de procesamiento
-    val avgChars: Long =
-      if (totalValid > 0) totalCharsAcc.value / totalValid else 0L
-
-    // postsFailed cuenta los feeds que no produjeron posts (fallos de parseo)
-    val postsFailed = subsRDD.filter { sub =>
-      FileIO.downloadFeed(sub).exists(json =>
-        JsonParser.parsePosts(json, sub).isEmpty
-      )
-    }.count()
+    // 5. Imprimir estadísticas de procesamiento
+    val avgChars: Long = totalCharsAcc.value / postFilteredAcc.value
     // Nota: la re-descarga de arriba sería muy costosa en producción;
     // para mayor precisión nos apoyamos en los acumuladores del primer pasaje.
     val stats = Map(
@@ -132,17 +124,9 @@ object Main {
     println(Formatters.formatProcessingStats(stats))
     println()
 
-    // 7. Guardia: ningún post válido
-    if (totalValid == 0) {
-      println("Error: No valid posts downloaded after filtering")
-      spark.stop()
-      return
-    }
-
     // 8. Cargar diccionario en el driver y hacer broadcast
     // loadAll ya imprimió el error de directorio no encontrado si corresponde.
     val dictionary: List[NamedEntity] = Dictionary.loadAll(cmdArgs.entitiesDir)
-
     val dictBroadcast = sc.broadcast(dictionary)
 
     // 9. Detectar entidades (distribuido)
