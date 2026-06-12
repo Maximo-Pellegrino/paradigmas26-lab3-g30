@@ -70,6 +70,7 @@ object Main {
     val discPostsAcc    = sc.longAccumulator("discPosts")
 
     // RDD[Post] — ya filtrado (título y selftext no vacíos)
+    // Antes de la primera acción terminal
     val filteredPostsRDD = subsRDD.flatMap { subscription =>
       val feedOpt: Option[String] = FileIO.downloadFeed(subscription)
 
@@ -106,8 +107,11 @@ object Main {
       }
     }.cache() // evitamos recalcular todo el pipeline
 
+    val startTimeValidPosts = System.currentTimeMillis()
     //Ejecutamos la descarga y filtrado para llenar los acumuladores antes de imprimir estadísticas.
     val totalValidPosts = filteredPostsRDD.count()
+
+    val endTimeValidPosts = System.currentTimeMillis()
 
     // 7. Guardia: ningún post válido
     if (totalValidPosts == 0) {
@@ -132,14 +136,17 @@ object Main {
     // (clave, valor) y combina todos los valores que tienen la misma clave
     // usando una función, en este caso _ + _ (suma).
     // Ver cómo spark lo distribuye en informe.md
+    val startTimeEntityCounts = System.currentTimeMillis()
     val entityCountsRDD = allEntitiesRDD
       .map(e => ((e.entityType, e.text), 1))
       .reduceByKey(_ + _)
+    val endTimeEntityCounts = System.currentTimeMillis()
 
+    val startTimeTypeCounts = System.currentTimeMillis()
     val typeCountsRDD = allEntitiesRDD
       .map(e => (e.entityType, 1))
       .reduceByKey(_ + _)
-
+    val endTimeTypeCounts = System.currentTimeMillis()
     // 5. Imprimir estadísticas de procesamiento
     val avgChars: Long = totalCharsAcc.value / totalValidPosts
     // Nota: la re-descarga de arriba sería muy costosa en producción;
@@ -155,6 +162,9 @@ object Main {
 
     println(Formatters.formatProcessingStats(stats))
     println()
+    println(s"Time to get post counts: ${(endTimeValidPosts - startTimeValidPosts) / 1000.0} seconds")
+    println(s"Time to detect entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
+    println(s"Time to count entity types: ${(endTimeTypeCounts - startTimeTypeCounts) / 1000.0} seconds")
 
     // Colectar en el driver para formatear (conjuntos de resultados pequeños)
     // collect() trae todos los datos de los workers al driver, convirtiendo el
