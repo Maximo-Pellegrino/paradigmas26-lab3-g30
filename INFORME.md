@@ -135,6 +135,15 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
         Por eso adoptamos la decisión que lo haga el driver y se lo pase a los workers por broadcast
 
+#### Ejercicio 4 - Accumulators
+
+- ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
+
+    Porque los Accumulators se modifican concurrentemente por medio de los distintos workers. De igual manera, la API de Spark le prohíbe físicamente el acceso al worker al valor del acumulador. Si intentáramos basar una decisión lógica (un if) en esa variable durante una transformación, estaríamos dependiendo de una condición que puede incrementarse en cualquier momento por otro worker.
+
+- ¿En qué momento del pipeline está disponible el valor de un Accumulator para ser leído por el driver? 
+
+    Las decisiones lógicas basadas en estos valores solo deben ser tomadas por el driver, de forma centralizada, y únicamente después de que haya finalizado una acción terminal (como collect o count), asegurando que el valor ya es estable y final. Esto se debe a la evaluación perezosa (lazy evaluation) de Spark. Solo cuando una acción fuerza la ejecución del pipeline, los workers realizan el cómputo real, suman sus valores locales y, al terminar, envían el resultado consolidado de vuelta al driver para que pueda ser leído. 
 
 #### Ejercicio 5 - Cache
 
