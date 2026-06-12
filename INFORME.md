@@ -6,7 +6,7 @@
 
 El pipeline es esencialmente lineal, con una bifurcación al final para los dos cómputos de estadísticas independientes. Cada arista del grafo lleva el tipo Scala del dato que fluye entre pasos. Se indica además si cada paso lo ejecuta el **driver** (proceso central) o un **worker** (proceso distribuido).
 
-![alt](diagrama.png)
+![alt](imagenes/diagrama.png)
 
 **Tabla de tipos por arista:**
 
@@ -156,6 +156,9 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
     Spark redujo el tiempo total de ejecución de 20 a 6 segundos al acelerar las descargas. Por otro lado, el procesamiento del texto demoró muy poco en ambas versiones por el bajo volumen de datos.
     Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red.
+
+    captura de spark ui en version parallelize:
+    ![alt](imagenes/uiparallelize.png)
 
 ## Ejercicio 5 - Cache
 
