@@ -121,3 +121,17 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
     - Lo que debe cumplir es que sea una función iterable y conmutativa 
 
     > Merge the values for each key using an associative and commutative reduce function.   -Documentación de Apache Spark
+
+
+#### Ejercicio 5 - Cache
+
+- ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
+
+    Si no se llama a cache(), Spark borraría los datos apenas los usa, por lo que cada vez que se ejecute una acción se vuelve a calcular todo el pipeline desde el inicio. Por ejemplo, tenemos 3 acciones que dependen de la descarga de feeds: entityCountsRDD.collect(), typeCountsRDD.collect() y allEntitiesRDD.count(). Si no guardásemos en cache la descarga, se ejecutaría 3 veces, por lo que, además de hacerse muy lento el proceso, puede pasar incluso que Reddit nos bloquee por tantas peticiones repetidas.
+
+- ¿Por qué es incorrecto llamar a collect() entre los pasos (a) y (b) del ejercicio 3 y luego continuar el pipeline? ¿Qué consecuencia tiene sobre la distribución del trabajo?
+
+    Si llamamos a collect() a la mitad del pipeline, lo que hacemos es agarrar los datos que estaban repartidos en paralelo por los workers, y forzarlos a ser devueltos al driver. Esto genera que lo que viene despues del collect() se ejecute de forma secuencial, por lo que es mucho mas lento, e incluso puede darnos el error de falta de memoria 'Out of Memory'.
+
+- cache() es también lazy. ¿En qué momento se almacena realmente el RDD en memoria?
+    El RDD recién se almacena físicamente en la memoria de los workers en el momento en que se ejecuta la primera "Acción" sobre el mismo.
