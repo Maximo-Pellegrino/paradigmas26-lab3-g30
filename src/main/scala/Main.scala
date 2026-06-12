@@ -142,12 +142,20 @@ object Main {
     val entityCountsRDD = allEntitiesRDD
       .map(e => ((e.entityType, e.text), 1))
       .reduceByKey(_ + _)
+    // Colectar en el driver para formatear (conjuntos de resultados pequeños)
+    // collect() trae todos los datos de los workers al driver, convirtiendo el
+    // RDD en un array normal de Scala.
+    val entityCounts: Map[(String, String), Int] =
+      entityCountsRDD.collect().toMap
     val endTimeEntityCounts = System.currentTimeMillis()
 
     val startTimeTypeCounts = System.currentTimeMillis()
     val typeCountsRDD = allEntitiesRDD
       .map(e => (e.entityType, 1))
       .reduceByKey(_ + _)
+    
+    val typeCountsMap: Map[String, Int] =
+      typeCountsRDD.collect().toMap
     val endTimeTypeCounts = System.currentTimeMillis()
     // 5. Imprimir estadísticas de procesamiento
     val avgChars: Long = totalCharsAcc.value / totalValidPosts
@@ -167,15 +175,6 @@ object Main {
     println(s"Time to get post counts: ${(endTimeValidPosts - startTimeValidPosts) / 1000.0} seconds")
     println(s"Time to detect entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
     println(s"Time to count entity types: ${(endTimeTypeCounts - startTimeTypeCounts) / 1000.0} seconds")
-
-    // Colectar en el driver para formatear (conjuntos de resultados pequeños)
-    // collect() trae todos los datos de los workers al driver, convirtiendo el
-    // RDD en un array normal de Scala.
-    val entityCounts: Map[(String, String), Int] =
-      entityCountsRDD.collect().toMap
-
-    val typeCountsMap: Map[String, Int] =
-      typeCountsRDD.collect().toMap
 
     val totalEntities = allEntitiesRDD.count()
     val typeStats     = typeCountsMap + ("total" -> totalEntities.toInt)
