@@ -28,12 +28,12 @@ El pipeline es esencialmente lineal, con una bifurcación al final para los dos 
 
 | Paso del pipeline         | Abstracción Spark    | Justificación                                                                                                    |
 |---------------------------|----------------------|------------------------------------------------------------------------------------------------------------------|
-| Descargar feed            | `map`                | Cada `Subscription` produce exactamente un `Option[String]`. Las tareas son totalmente independientes entre sí. |
+| Descargar feed            | `map`                | Cada `Subscription` produce exactamente un `Option[String]` |
 | Parsear posts             | `flatMap`            | Cada feed puede producir 0 posts (si el JSON es inválido) o N posts (uno por entrada en `children`).             |
-| Filtrar posts vacíos      | `filter` = `flatMap` | Cada `Post` produce 0 o 1 resultados según el predicado. Es un `flatMap` degenerado.                             |
+| Filtrar posts vacíos      | `filter` = `flatMap` | Cada `Post` produce 0 o 1 resultados según el predicado. (Nota: filter es un `flatMap`) degenerado.                             |
 | Detectar entidades        | `flatMap`            | Cada post produce 0 entidades (si no hay coincidencias) o N (una por entidad encontrada).                        |
-| Contar entidades          | `reduceByKey`        | Equivale a `rdd.map(e => ((e.entityType, e.text), 1)).reduceByKey(_ + _)`.                                       |
-| Contar por tipo           | `reduceByKey`        | Equivale a `rdd.map(e => (e.entityType, 1)).reduceByKey(_ + _)`.                                                 |
+| Contar entidades          | `map` + `reduceByKey`        | Equivale a `rdd.map(e => ((e.entityType, e.text), 1)).reduceByKey(_ + _)`.                                       |
+| Contar por tipo           | `map` + `reduceByKey`          | Equivale a `rdd.map(e => (e.entityType, 1)).reduceByKey(_ + _)`.                                                 |
 | Ranking (sort + top-K)    | **No encaja**        | Ver análisis debajo.                                                                                             |
 | Leer suscripciones        | **No encaja**        | Ver análisis debajo.                                                                                             |
 | Cargar diccionario        | **No encaja**        | Ver análisis debajo.                                                                                             |
@@ -52,9 +52,9 @@ En Spark, las transformaciones **narrow** permiten a cada worker operar sobre su
 
 ### Pasos que son barreras (requieren sincronización global)
 
-**`Analyzer.countEntities` (reduceByKey):** Todos los workers que ejecutan `detectEntities` deben haber terminado y emitido sus pares `((tipo, nombre), 1)` antes de que pueda comenzarse a sumar. La cuenta final de una entidad como `("ProgrammingLanguage", "Scala")` depende de las ocurrencias detectadas en _todos_ los posts de _todos_ los feeds, que están distribuidos en distintos nodos. Hasta que el último worker no emita su contribución, el resultado es incompleto.
+**`Analyzer.countEntities` (reduceByKey):** Todos los workers que ejecutan `detectEntities` deben haber terminado y emitido sus pares `((tipo, nombre), 1)` antes de que pueda comenzarse a sumar. La cuenta final de una entidad como `("ProgrammingLanguage", "Scala")` depende de las ocurrencias detectadas en _todos_ los posts de _todos_ los feeds, que están distribuidos en distintos nodos.
 
-**`Analyzer.countByType` (reduceByKey):** Misma situación. El total de entidades de tipo `Person`, por ejemplo, requiere acumular los conteos parciales de todos los workers.
+**`Analyzer.countByType` (reduceByKey):** Ocurre la misma situación. El total de entidades de tipo `Person`, por ejemplo, requiere acumular los conteos parciales de todos los workers.
 
 **Ranking (sortBy + take(K)):** Constituye una segunda barrera, que además depende de que `countEntities` haya finalizado. Para ordenar globalmente el mapa de frecuencias se requiere un shuffle completo: los workers intercambian datos para redistribuirlos según la clave de ordenamiento antes de producir el resultado final.
 
@@ -70,32 +70,28 @@ En Spark, las transformaciones **narrow** permiten a cada worker operar sobre su
 
 ### Nota sobre la carga del diccionario
 
-`Dictionary.loadAll` no es una barrera de shuffle, pero representa una _dependencia de datos secuencial_: debe completarse en el driver antes de que pueda broadcastearse y antes de que los workers comiencen la fase de detección. Es una precondición, no una barrera entre workers.
+`Dictionary.loadAll` no es una barrera de shuffle - representa una _dependencia de datos secuencial_: debe completarse en el driver antes de que pueda broadcastearse y antes de que los workers comiencen la fase de detección. Es una dependencia secuencial, no una barrera entre workers.
 
 ---
 
 ## d) Restricciones sobre las funciones en entornos distribuidos
 
-El mecanismo de extensión de Spark (pasar lambdas/closures a `map`, `flatMap`, `reduceByKey`, etc.) impone restricciones que no existen en programación secuencial, derivadas de la necesidad de ejecutar código en máquinas remotas.
-
 ### 1. Serialización
 
-Toda función pasada a una transformación de Spark es **serializada en el driver, enviada por la red a cada worker, y deserializada para su ejecución**. Esto impone:
+Toda función pasada a una transformación de Spark es **serializada en el driver, enviada por la red a cada worker, y deserializada para su ejecución**. Esto impone que:
 
-- La closure debe ser serializable (compatible con Java Serialization o Kryo).
+- La closure debe ser serializable (compatible con Java Serialization).
 - Todo objeto capturado por la closure también debe ser serializable. Si `detectEntities` captura el diccionario `List[NamedEntity]`, entonces `NamedEntity`, `Person`, `Organization`, `ProgrammingLanguage`, etc. deben poder serializarse.
 - **Problema concreto en el código actual:** Las subclases de `NamedEntity` son clases regulares de Scala, no `case class`. Las clases regulares no implementan `java.io.Serializable` automáticamente. En Spark, esto generaría un `NotSerializableException` en tiempo de ejecución al intentar broadcastear el diccionario. Una solución es añadir `extends Serializable` a la jerarquía.
-- **Objetos intrínsecamente no serializables:** `scala.io.Source`, conexiones de red abiertas (`java.net.Socket`), descriptores de archivo (`FileInputStream`), etc. no pueden serializarse. Si alguna closure los capturara, fallaría en tiempo de ejecución, no en compilación, lo que dificulta la detección del error.
+- **Objetos intrínsecamente no serializables:** `scala.io.Source`, conexiones de red abiertas (`java.net.Socket`), descriptores de archivo (`FileInputStream`), etc. no pueden serializarse. Algo para añadir sobre esto es que, si alguna closure los capturara, fallaría en tiempo de ejecución, no en compilación, lo que dificulta la detección del error.
 
 ### 2. Ausencia de estado compartido mutable entre workers
 
-En un cluster Spark, cada worker corre en su propia JVM en una máquina física diferente. **No existe memoria compartida entre workers, ni entre workers y el driver**, salvo mecanismos explícitos como `Accumulator` (para agregación distribuida) o `Broadcast` (para datos de solo lectura).
+En un cluster Spark, cada worker corre en su propia JVM en una máquina física diferente. **No existe memoria compartida entre workers**. Solo puede existir entre workers y drivers **únicamente** mediante mecanismos explícitos como `Accumulator` (para agregación distribuida) o `Broadcast` (para datos de solo lectura).
 
-Si una closure captura una variable mutable (`var`) del driver, cada worker recibe una **copia serializada** del valor en el momento de la distribución de la tarea. Las modificaciones que haga el worker a esa copia son completamente locales a su JVM: nunca se propagan hacia el driver ni hacia otros workers. Código que funciona correctamente en ejecución local (donde todos los "workers" comparten el mismo heap) produce resultados incorrectos o silenciosamente ignorados en Spark.
+Si una closure captura una variable mutable (`var`) del driver, cada worker recibe una **copia serializada** del valor en el momento de la distribución de la tarea. Las modificaciones que haga el worker a esa copia son completamente locales a su JVM: nunca se propagan hacia el driver ni hacia otros workers. Código que funciona correctamente en ejecución local (donde todos los "workers" comparten el mismo heap) produce resultados incorrectos o silenciosamente ignorados en Spark. Por ejemplo, si se intentara acumular un contador de entidades detectadas en una `var` del driver desde dentro de un `flatMap`, ese contador nunca se actualizaría desde fuera del driver. Para este patrón, Spark provee `LongAccumulator`, que tiene semántica específica para agregación distribuida segura.
 
-**Ejemplo:** Si se intentara acumular un contador de entidades detectadas en una `var` del driver desde dentro de un `flatMap`, ese contador nunca se actualizaría desde fuera del driver. Para este patrón, Spark provee `LongAccumulator`, que tiene semántica específica para agregación distribuida segura.
-
-### 3. Efectos secundarios e idempotencia
+### 3. Idempotencia
 
 Spark puede **re-ejecutar tareas fallidas** en otro nodo (por fallo de hardware o de red) y, en modo especulativo, **ejecutar la misma tarea concurrentemente en múltiples nodos**. Por este motivo, las funciones deben ser **idempotentes**: ejecutar la misma función múltiples veces sobre el mismo input debe producir el mismo resultado observable.
 
@@ -107,4 +103,4 @@ Efectos secundarios problemáticos identificados en el código actual:
 
 ### 4. Determinismo
 
-Las funciones deben producir el mismo resultado dado el mismo input para que la re-ejecución por fallos produzca resultados coherentes. El acceso a recursos externos mutables —APIs de Reddit que pueden retornar posts diferentes en dos llamadas distintas, o archivos en disco que pueden haber sido modificados— introduce no-determinismo que puede causar inconsistencias difíciles de depurar: la re-ejecución de una tarea fallida podría incorporar datos distintos a los de la ejecución original, corrompiendo el resultado final de forma silenciosa.
+Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo resultado dado el mismo input para que la re-ejecución produzca resultados coherentes. Por ejemplo, el acceso a recursos externos mutables —APIs de Reddit que pueden retornar posts diferentes en dos llamadas distintas, o archivos en disco que pueden haber sido modificados— introduce no-determinismo que puede causar inconsistencias difíciles de depurar: la re-ejecución de una tarea fallida podría incorporar datos distintos a los de la ejecución original, corrompiendo el resultado final de forma silenciosa.
