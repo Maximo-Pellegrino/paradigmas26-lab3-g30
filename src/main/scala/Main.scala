@@ -67,6 +67,7 @@ object Main {
     val postSuccessAcc  = sc.longAccumulator("postsSuccess")
     val postFailedAcc   = sc.longAccumulator("postsFailed")
     val totalCharsAcc   = sc.longAccumulator("totalChars")
+    val discPostsAcc    = sc.longAccumulator("discPosts")
 
     // RDD[Post] — ya filtrado (título y selftext no vacíos)
     val filteredPostsRDD = subsRDD.flatMap { subscription =>
@@ -91,6 +92,12 @@ object Main {
           post.title.nonEmpty &&
           post.selftext.trim.nonEmpty
         }
+
+        // Posts descartados
+        val invalidPostsCount = rawPosts.length - valid.length
+
+        // Guardamos en el acumulador
+        discPostsAcc.add(invalidPostsCount)
 
         val chars = valid.map(p => p.title.length + p.selftext.length).sum
         totalCharsAcc.add(chars)
