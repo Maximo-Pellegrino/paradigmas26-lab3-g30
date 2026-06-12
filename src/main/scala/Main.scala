@@ -101,29 +101,6 @@ object Main {
       }
     }
 
-        // 7. Guardia: ningún post válido
-    if (postFilteredAcc.value.toInt == 0) {
-      println("Error: No valid posts downloaded after filtering")
-      spark.stop()
-      return
-    }
-
-    // 5. Imprimir estadísticas de procesamiento
-    val avgChars: Long = totalCharsAcc.value / postFilteredAcc.value
-    // Nota: la re-descarga de arriba sería muy costosa en producción;
-    // para mayor precisión nos apoyamos en los acumuladores del primer pasaje.
-    val stats = Map(
-      "feedsSuccess"  -> feedSuccessAcc.value.toInt,
-      "feedsFailed"   -> feedFailedAcc.value.toInt,
-      "postsSuccess"  -> postSuccessAcc.value.toInt,
-      "postsFailed"   -> postFailedAcc.value.toInt,
-      "postsFiltered" -> postFilteredAcc.value.toInt,
-      "avgChars"      -> avgChars.toInt
-    )
-
-    println(Formatters.formatProcessingStats(stats))
-    println()
-
     // 8. Cargar diccionario en el driver y hacer broadcast
     // loadAll ya imprimió el error de directorio no encontrado si corresponde.
     val dictionary: List[NamedEntity] = Dictionary.loadAll(cmdArgs.entitiesDir)
@@ -147,6 +124,29 @@ object Main {
     val typeCountsRDD = allEntitiesRDD
       .map(e => (e.entityType, 1))
       .reduceByKey(_ + _)
+    
+    // 7. Guardia: ningún post válido
+    if (postFilteredAcc.value.toInt == 0) {
+      println("Error: No valid posts downloaded after filtering")
+      spark.stop()
+      return
+    }
+
+    // 5. Imprimir estadísticas de procesamiento
+    val avgChars: Long = totalCharsAcc.value / postFilteredAcc.value
+    // Nota: la re-descarga de arriba sería muy costosa en producción;
+    // para mayor precisión nos apoyamos en los acumuladores del primer pasaje.
+    val stats = Map(
+      "feedsSuccess"  -> feedSuccessAcc.value.toInt,
+      "feedsFailed"   -> feedFailedAcc.value.toInt,
+      "postsSuccess"  -> postSuccessAcc.value.toInt,
+      "postsFailed"   -> postFailedAcc.value.toInt,
+      "postsFiltered" -> postFilteredAcc.value.toInt,
+      "avgChars"      -> avgChars.toInt
+    )
+
+    println(Formatters.formatProcessingStats(stats))
+    println()
 
     // Colectar en el driver para formatear (conjuntos de resultados pequeños)
     // collect() trae todos los datos de los workers al driver, convirtiendo el
