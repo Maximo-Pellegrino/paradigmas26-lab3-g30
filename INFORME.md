@@ -122,7 +122,7 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
     luego el reduceByKey los agrupara por claves bajo la operación de la suma, que es la idea elemental de la implementación, unificar las instancias mediante sumar unidades por cada ocurrencia
 
 - ¿Qué restricciones debe cumplir la función que se le pasa a reduceByKey? Piensen en conmutatividad y asociatividad.
-    Lo que debe cumplir es que sea una función iterable y conmutativa 
+    - Lo que debe cumplir es que sea una función que reduzca el conjunto del dominio. Ademas debe ser asociativa y conmutativa.
 
     > "Merge the values for each key using an associative and commutative reduce function."   -Documentación de Apache Spark
 
