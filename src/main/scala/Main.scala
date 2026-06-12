@@ -173,7 +173,7 @@ object Main {
     println(Formatters.formatProcessingStats(stats))
     println()
     println(s"Time to get post counts: ${(endTimeValidPosts - startTimeValidPosts) / 1000.0} seconds")
-    println(s"Time to detect entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
+    println(s"Time to count entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
     println(s"Time to count entity types: ${(endTimeTypeCounts - startTimeTypeCounts) / 1000.0} seconds")
 
     val totalEntities = allEntitiesRDD.count()

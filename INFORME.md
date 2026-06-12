@@ -142,15 +142,20 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 - Métricas
     - Versión no paralelizada
     [info] Time to get post counts: 20.113 seconds
-    [info] Time to detect entities: 0.017 seconds
+    [info] Time to count entities: 0.017 seconds
     [info] Time to count entity types: 0.002 seconds
 
     - Version con Spark
     [info] Time to get post counts: 5.536 seconds
-    [info] Time to detect entities: 5.33 seconds
+    [info] Time to count entities: 5.33 seconds
     [info] Time to count entity types: 5.285 seconds
 
-    Spark redujo el tiempo de cuenta de posts de 20 a 6 segundos (en un 66%) al acelerar las descargas. Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red. Por otro lado, notamos un sustancial overhead entre la detección y conteo de entidades en la versión con spark (0.323 y 0.468 vs 0.017 y 0.002 respectivamente). Esta diferencia puede deberse a que el overhead del shuffle supere a la carga secuencial del trabajo.
+    Spark redujo el tiempo de cuenta de posts de 20 a 5.5 segundos (en un 66%) al acelerar las descargas. Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red. Por otro lado, notamos un sustancial overhead entre la detección y conteo de entidades en la versión con spark (5.33 y 5.28 vs 0.017 y 0.002 respectivamente). Esta diferencia se debe a que spark debe recalcular todo el trabajo al no estar cacheado, lo que hace subir el tiempo considerablemente. Queriamos añadir que hicimos pruebas con los datos en caché (sin recalcular) y los resultados fueron los siguientes:
+    - Version con spark (con los datos en caché)
+    [info] Time to get post counts: 6.054 seconds
+    [info] Time to count entities: 0.323 seconds
+    [info] Time to count entity types: 0.468 seconds
+    Vemos que el tiempo de get post aumenta levemente porque nosotros contamos el tiempo despues del cache que tiene un pequeño overhead. Pero si volvemos a comparar el tiempo de count entities y count entity types, bajaron mucho el tiempo (por no recalcular los datos), pero siguen siendo muy superiores al tiempo secuencial (0.323 y 0.468 vs 0.017 y 0.002), mostrando que para el volumen de datos con los que estamos trabajando, el peso del overhead del shuffle de spark supera a la ventaja de paralelizar.
 
     captura de spark ui en version parallelize:
     ![alt](imagenes/uiparallelize.png)
