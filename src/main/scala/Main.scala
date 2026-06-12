@@ -66,7 +66,6 @@ object Main {
     val feedFailedAcc   = sc.longAccumulator("feedsFailed")
     val postSuccessAcc  = sc.longAccumulator("postsSuccess")
     val postFailedAcc   = sc.longAccumulator("postsFailed")
-    val postFilteredAcc = sc.longAccumulator("postsFiltered")
     val totalCharsAcc   = sc.longAccumulator("totalChars")
 
     // RDD[Post] — ya filtrado (título y selftext no vacíos)
@@ -92,13 +91,21 @@ object Main {
           post.selftext.trim.nonEmpty
         }
 
-        postFilteredAcc.add(valid.length)
-
         val chars = valid.map(p => p.title.length + p.selftext.length).sum
         totalCharsAcc.add(chars)
 
         valid.iterator
       }
+    }.cache() // evitamos recalcular todo el pipeline
+
+    //Ejecutamos la descarga y filtrado para llenar los acumuladores antes de imprimir estadísticas.
+    val totalValidPosts = filteredPostsRDD.count()
+
+    // 7. Guardia: ningún post válido
+    if (totalValidPosts == 0) {
+      println("Error: No valid posts downloaded after filtering")
+      spark.stop()
+      return
     }
 
     // 8. Cargar diccionario en el driver y hacer broadcast
@@ -110,7 +117,7 @@ object Main {
     val allEntitiesRDD = filteredPostsRDD.flatMap { post =>
       val combinedText = post.title + " " + post.selftext
       Analyzer.detectEntities(combinedText, dictBroadcast.value)
-    }
+    }.cache() // con el cache evitamos volver a detectar entidades en los siguientes pasos.
 
     // 10. Contar entidades (reduceByKey distribuido)
     // reduceByKey: Es un groupBy + op en un solo paso distribuido. Toma pares
@@ -124,16 +131,9 @@ object Main {
     val typeCountsRDD = allEntitiesRDD
       .map(e => (e.entityType, 1))
       .reduceByKey(_ + _)
-    
-    // 7. Guardia: ningún post válido
-    if (postFilteredAcc.value.toInt == 0) {
-      println("Error: No valid posts downloaded after filtering")
-      spark.stop()
-      return
-    }
 
     // 5. Imprimir estadísticas de procesamiento
-    val avgChars: Long = totalCharsAcc.value / postFilteredAcc.value
+    val avgChars: Long = totalCharsAcc.value / totalValidPosts
     // Nota: la re-descarga de arriba sería muy costosa en producción;
     // para mayor precisión nos apoyamos en los acumuladores del primer pasaje.
     val stats = Map(
@@ -141,7 +141,7 @@ object Main {
       "feedsFailed"   -> feedFailedAcc.value.toInt,
       "postsSuccess"  -> postSuccessAcc.value.toInt,
       "postsFailed"   -> postFailedAcc.value.toInt,
-      "postsFiltered" -> postFilteredAcc.value.toInt,
+      "postsFiltered" -> totalValidPosts.toInt,
       "avgChars"      -> avgChars.toInt
     )
 
@@ -164,6 +164,10 @@ object Main {
     println(Formatters.formatTypeStats(typeStats))
     println()
     println(Formatters.formatEntityStats(entityCounts, cmdArgs.topK))
+
+    // Liberamos cache para liberar memoria.
+    filteredPostsRDD.unpersist()
+    allEntitiesRDD.unpersist()
 
     spark.stop()
   }
