@@ -131,7 +131,7 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
 - ¿Por qué es incorrecto llamar a collect() entre los pasos (a) y (b) del ejercicio 3 y luego continuar el pipeline? ¿Qué consecuencia tiene sobre la distribución del trabajo?
 
-    Si llamamos a collect() a la mitad del pipeline, lo que hacemos es agarrar los datos que estaban repartidos en paralelo por los workers, y forzarlos a ser devueltos al driver. Esto genera que lo que viene despues del collect() se ejecute de forma secuencial, por lo que es mucho mas lento, e incluso puede darnos el error de falta de memoria 'Out of Memory'
+    Si llamamos a collect() a la mitad del pipeline, lo que hacemos es agarrar los datos que estaban repartidos en paralelo por los workers, y forzarlos a ser devueltos al driver. Esto genera que lo que viene despues del collect() se ejecute de forma secuencial, por lo que es mucho mas lento, e incluso puede darnos el error de falta de memoria 'Out of Memory'.
 
 - cache() es también lazy. ¿En qué momento se almacena realmente el RDD en memoria?
     El RDD recién se almacena físicamente en la memoria de los workers en el momento en que se ejecuta la primera "Acción" sobre el mismo.
