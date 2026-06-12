@@ -107,12 +107,6 @@ Efectos secundarios problemáticos identificados en el código actual:
 
 Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo resultado dado el mismo input para que la re-ejecución produzca resultados coherentes. Por ejemplo, el acceso a recursos externos mutables —APIs de Reddit que pueden retornar posts diferentes en dos llamadas distintas, o archivos en disco que pueden haber sido modificados— introduce no-determinismo que puede causar inconsistencias difíciles de depurar: la re-ejecución de una tarea fallida podría incorporar datos distintos a los de la ejecución original, corrompiendo el resultado final de forma silenciosa.
 
-4 parcial:
-
-[info] Time to get post counts: 6.054 seconds
-[info] Time to detect entities: 0.033 seconds
-[info] Time to count entity types: 0.016 seconds
-
 ### 5. Preguntas y Respuestas.
 
 - reduceByKey es una barrera de sincronización. ¿Qué ocurre en el cluster en ese punto? ¿Por qué es inevitable para este problema?
