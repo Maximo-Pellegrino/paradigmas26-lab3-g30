@@ -143,6 +143,20 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
     Las decisiones lógicas basadas en estos valores solo deben ser tomadas por el driver, de forma centralizada, y únicamente después de que haya finalizado una acción terminal (como collect o count), asegurando que el valor ya es estable y final. Esto se debe a la evaluación perezosa (lazy evaluation) de Spark. Solo cuando una acción fuerza la ejecución del pipeline, los workers realizan el cómputo real, suman sus valores locales y, al terminar, envían el resultado consolidado de vuelta al driver para que pueda ser leído. 
 
+- Métricas
+    - Versión no paralelizada
+    [info] Time to get post counts: 20.113 seconds
+    [info] Time to detect entities: 0.017 seconds
+    [info] Time to count entity types: 0.002 seconds
+
+    - Version con Spark
+    [info] Time to get post counts: 6.054 seconds
+    [info] Time to detect entities: 0.033 seconds
+    [info] Time to count entity types: 0.016 seconds
+
+    Spark redujo el tiempo total de ejecución de 20 a 6 segundos al acelerar las descargas. Por otro lado, el procesamiento del texto demoró muy poco en ambas versiones por el bajo volumen de datos.
+    Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red.
+
 ## Ejercicio 5 - Cache
 
 - ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
