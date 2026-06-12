@@ -101,10 +101,46 @@ Spark puede **re-ejecutar tareas fallidas** en otro nodo (por fallo de hardware 
 
 Efectos secundarios problemáticos identificados en el código actual:
 
-- **`JsonParser.parsePosts` llama a `println` en el bloque `catch`:** En entorno distribuido, este output aparece en los logs del worker, no en la consola del driver. Si Spark re-ejecuta la tarea, el mensaje se duplica en los logs.
+- **`JsonParser.parsePosts` llama a `println` en el bloque `catch`:** En entorno distribuido, este output aparece en los logs del worker, no en la consola del driver. Si Spark re-ejecuta la tarea, el mensaje se duplica en los logs. No es crítico, pero el logging en workers distribuidos debe hacerse a través del sistema de logging del cluster (SLF4J/Log4j), no con `println`.
 
 - **`FileIO.downloadFeed` realiza una llamada HTTP:** Si Spark re-ejecuta la tarea por un fallo transitorio, se realiza una segunda petición HTTP al servidor de Reddit. Esto es problemático si la API tiene rate-limiting, si el recurso no es idempotente, o si el contenido puede haber cambiado entre ejecuciones (introduciendo no-determinismo en el resultado final).
+
+- **`Dictionary.loadAll` lee archivos del sistema de archivos local:** En un cluster Spark, los workers son máquinas físicas distintas. Los archivos en el disco local del driver **no son visibles para los workers**. Si esta función se ejecutara dentro de una tarea de worker, fallaría con `FileNotFoundException` en todos los nodos excepto el driver. La solución correcta es: cargar el diccionario en el driver, empaquetarlo como `Broadcast[List[NamedEntity]]`, y accederlo desde las closures de los workers a través de `broadcast.value`.
 
 ### 4. Determinismo
 
 Las funciones deben producir el mismo resultado dado el mismo input para que la re-ejecución por fallos produzca resultados coherentes. El acceso a recursos externos mutables —APIs de Reddit que pueden retornar posts diferentes en dos llamadas distintas, o archivos en disco que pueden haber sido modificados— introduce no-determinismo que puede causar inconsistencias difíciles de depurar: la re-ejecución de una tarea fallida podría incorporar datos distintos a los de la ejecución original, corrompiendo el resultado final de forma silenciosa.
+
+Apéndice
+Cómo reduceByKey se distribuye:
+Spark lo hace en dos fases:
+Fase 1 — reduce local (dentro de cada worker):
+Worker 1: ("Elon Musk", 1) + ("Elon Musk", 1) → ("Elon Musk", 2)
+Worker 2: ("Elon Musk", 1) + ("Elon Musk", 1) → ("Elon Musk", 2)
+Fase 2 — shuffle + reduce global:
+Spark mueve todos los resultados de la misma clave al mismo worker y los combina:
+Worker 3 recibe todos los "Elon Musk" → ("Elon Musk", 4)
+El shuffle (mover datos entre workers) es la parte costosa, pero al haber hecho el reduce local primero se manda mucho menos datos por la red.
+
+Por qué es mejor que groupBy:
+scala// groupBy — junta TODOS los valores crudos y después suma (más memoria, más red)
+rdd.groupBy(_._1).mapValues(_.sum)
+
+// reduceByKey — suma parcialmente en cada worker antes del shuffle (más eficiente)
+rdd.reduceByKey(_ + _)
+Con millones de entidades la diferencia es significativa.
+
+### 5. Preguntas y Respuestas.
+
+- reduceByKey es una barrera de sincronización. ¿Qué ocurre en el cluster en ese punto? ¿Por qué es inevitable para este problema?
+    - reduceByKey es una acción, lo que significa que funciona como trigger para la evaluacion de todas las **transformaciones** que hubo anteriormente (hasta el `cache()` anterior). Es inevitable para la implementación elegida porque se guardan las NamedEntities como una tupla 
+    ```Scala 
+        (NamedEntity, 1)
+        //Clave    , Valor 
+    ```
+    luego el reduceByKey los agrupara por claves bajo la operación de la suma, que es la idea elemental de la implementación, unificar las instancias mediante sumar unidades por cada ocurrencia
+
+- ¿Qué restricciones debe cumplir la función que se le pasa a reduceByKey? Piensen en conmutatividad y asociatividad.
+    - Lo que debe cumplir es que sea una función iterable y conmutativa 
+
+    > Merge the values for each key using an associative and commutative reduce function.   -Documentación de Apache Spark
