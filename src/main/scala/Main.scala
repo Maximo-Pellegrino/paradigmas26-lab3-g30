@@ -1,10 +1,7 @@
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.SparkContext
-import org.apache.log4j.{LogManager, Level}
 
 object Main {
-  val log = LogManager.getLogger("Main")
-  
   def main(args: Array[String]): Unit = {
 
     // 1. Parsear argumentos de línea de comandos
@@ -38,7 +35,6 @@ object Main {
 
     if (subscriptions.isEmpty) {
       println("Error: No valid subscriptions found")
-      println("Presioná Enter para cerrar Spark y bajar la UI...")
       Thread.sleep(60000)  // 60 segundos para sacar capturas
       spark.stop()
       return
@@ -121,7 +117,6 @@ object Main {
     // 7. Guardia: ningún post válido
     if (totalValidPosts == 0) {
       println("Error: No valid posts downloaded after filtering")
-      println("Presioná Enter para cerrar Spark y bajar la UI...")
       Thread.sleep(60000)  // 60 segundos para sacar capturas
       spark.stop()
       return
@@ -169,9 +164,9 @@ object Main {
 
     println(Formatters.formatProcessingStats(stats))
     println()
-    log.warn(s"Time to get post counts: ${(endTimeValidPosts - startTimeValidPosts) / 1000.0} seconds")
-    log.warn(s"Time to detect entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
-    log.warn(s"Time to count entity types: ${(endTimeTypeCounts - startTimeTypeCounts) / 1000.0} seconds")
+    println(s"Time to get post counts: ${(endTimeValidPosts - startTimeValidPosts) / 1000.0} seconds")
+    println(s"Time to detect entities: ${(endTimeEntityCounts - startTimeEntityCounts) / 1000.0} seconds")
+    println(s"Time to count entity types: ${(endTimeTypeCounts - startTimeTypeCounts) / 1000.0} seconds")
 
     // Colectar en el driver para formatear (conjuntos de resultados pequeños)
     // collect() trae todos los datos de los workers al driver, convirtiendo el
@@ -194,7 +189,6 @@ object Main {
     filteredPostsRDD.unpersist()
     allEntitiesRDD.unpersist()
 
-    println("Presioná Enter para cerrar Spark y bajar la UI...")
     Thread.sleep(60000)  // 60 segundos para sacar capturas
     spark.stop()
   }
