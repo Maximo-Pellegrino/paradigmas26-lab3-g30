@@ -128,6 +128,13 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
     > Merge the values for each key using an associative and commutative reduce function.   -Documentación de Apache Spark
 
+- ¿Dónde se hace la lectura del diccionario de entidades? ¿En el driver o los workers?
+    - La lectura de los diccionarios se hace en el **Driver** por varios motivos.
+        1. Podriamos imaginar que mandamos una *eneava* parte del diccionario a cada worker, que lo coleccionen y lo junten, se lo manden a cada entre sí por broadcast. Esta solución es MUY rebuscada y no aplica a las dimensiones del diccionario del proyecto.
+        2. Podriamos hacer que cada worker lea el diccionario individualmente. Tendría 2 problemas esto, si durante la ejecución del driver se actualiza el diccionario los workers jamás se enterarían. El segundo problema es que cada worker tendría que hacer una misma tarea, siendo overhead importante a medida que crezca lacantidad de workers.
+
+        Por eso adoptamos la decisión que lo haga el driver y se lo pase a los workers por broadcast
+
 
 #### Ejercicio 5 - Cache
 
