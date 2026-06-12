@@ -146,9 +146,9 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
     [info] Time to count entity types: 0.002 seconds
 
     - Version con Spark
-    [info] Time to get post counts: 6.054 seconds
-    [info] Time to detect entities: 0.323 seconds
-    [info] Time to count entity types: 0.468 seconds
+    [info] Time to get post counts: 5.536 seconds
+    [info] Time to detect entities: 5.33 seconds
+    [info] Time to count entity types: 5.285 seconds
 
     Spark redujo el tiempo de cuenta de posts de 20 a 6 segundos (en un 66%) al acelerar las descargas. Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red. Por otro lado, notamos un sustancial overhead entre la detección y conteo de entidades en la versión con spark (0.323 y 0.468 vs 0.017 y 0.002 respectivamente). Esta diferencia puede deberse a que el overhead del shuffle supere a la carga secuencial del trabajo.
 
