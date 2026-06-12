@@ -79,13 +79,14 @@ object Main {
       } else {
         feedSuccessAcc.add(1)
 
-        val rawPosts: List[Post] =
+        val results: List[Either[String, Post]] =
           JsonParser.parsePosts(feedOpt.get, subscription)
-        if (rawPosts.isEmpty) {
-          postFailedAcc.add(1)  // feed ok pero sin posts
-        } else {
-          postSuccessAcc.add(rawPosts.length)
-        }
+
+        val rawPosts   = results.collect { case Right(post) => post }
+        val failedCount = results.count(_.isLeft)
+
+        if (rawPosts.nonEmpty) postSuccessAcc.add(rawPosts.length)
+        if (failedCount > 0)   postFailedAcc.add(failedCount) 
 
         val valid = rawPosts.filter { post =>
           post.title.nonEmpty &&
