@@ -114,12 +114,8 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
 ## Ejercicio 3 - Paralelizar cómputo de entidades
 - reduceByKey es una barrera de sincronización. ¿Qué ocurre en el cluster en ese punto? ¿Por qué es inevitable para este problema?
-    reduceByKey es una acción, lo que significa que funciona como trigger para la evaluacion de todas las **transformaciones** que hubo anteriormente (hasta el `cache()` anterior). Es inevitable para la implementación elegida porque se guardan las NamedEntities como una tupla 
-    ```Scala 
-        (NamedEntity, 1)
-        //Clave    , Valor 
-    ```
-    luego el reduceByKey los agrupara por claves bajo la operación de la suma, que es la idea elemental de la implementación, unificar las instancias mediante sumar unidades por cada ocurrencia
+    En este punto del pipeline se produce un Shuffle, que actúa como una barrera de sincronización en el cluster. Esto significa que Spark divide la ejecución en dos etapas: los workers de la primera etapa deben terminar de procesar los posts antes de continuar. Ningún nodo puede comenzar con la reducción final hasta que todo el intercambio de datos (shuffle) se haya completado.
+    Este comportamiento es inevitable para este problema porque las entidades están dispersas en los distintos workers. Para poder contar cuántas repeticiones globales existen de una misma entidad (por ejemplo, saber cuántas veces apareció "Scala" en todo Reddit), es obligatorio agrupar todas las tuplas que compartan la misma clave (entityType, text) en un mismo nodo para realizar la agregación final (_ + _).
 
 - ¿Qué restricciones debe cumplir la función que se le pasa a reduceByKey? Piensen en conmutatividad y asociatividad.
     - Lo que debe cumplir es que sea una función que reduzca el conjunto del dominio. Ademas debe ser asociativa y conmutativa.
@@ -135,13 +131,13 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
 
 ## Ejercicio 4 - Accumulators
 
-- ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
+- ¿Por qué los Accumulators solo deben usarse para métricas y no para tomar decisiones lógicas dentro de las etapas distribuidas del pipeline? ¿En qué situación un Accumulator puede dar un valor incorrecto?
 
     Porque los Accumulators se modifican concurrentemente por medio de los distintos workers. De igual manera, la API de Spark le prohíbe físicamente el acceso al worker al valor del acumulador. Si intentáramos basar una decisión lógica (un if) en esa variable durante una transformación, estaríamos dependiendo de una condición que puede incrementarse en cualquier momento por otro worker.
 
 - ¿En qué momento del pipeline está disponible el valor de un Accumulator para ser leído por el driver? 
 
-    Las decisiones lógicas basadas en estos valores solo deben ser tomadas por el driver, de forma centralizada, y únicamente después de que haya finalizado una acción terminal (como collect o count), asegurando que el valor ya es estable y final. Esto se debe a la evaluación perezosa (lazy evaluation) de Spark. Solo cuando una acción fuerza la ejecución del pipeline, los workers realizan el cómputo real, suman sus valores locales y, al terminar, envían el resultado consolidado de vuelta al driver para que pueda ser leído. 
+    Las decisiones lógicas basadas en estos valores solo deben ser tomadas por el driver, únicamente después de que haya finalizado una acción (como collect o count), asegurando que el valor ya es estable y final. Esto se debe a la evaluación perezosa (lazy evaluation) de Spark. Solo cuando una acción fuerza la ejecución del pipeline, los workers realizan el cómputo real, suman sus valores locales y, al terminar, envían el resultado de vuelta al driver para que pueda ser leído. 
 
 - Métricas
     - Versión no paralelizada
