@@ -1,7 +1,7 @@
 # Informe: Pipeline NER como Grafo de Dependencias y Abstracciones Spark
 
 ---
-
+## Ejercicio 1
 ## a) Grafo de dependencias del pipeline
 
 El pipeline es esencialmente lineal, con una bifurcación al final para los dos cómputos de estadísticas independientes. Cada arista del grafo lleva el tipo Scala del dato que fluye entre pasos. Se indica además si cada paso lo ejecuta el **driver** (proceso central) o un **worker** (proceso distribuido).
@@ -107,10 +107,14 @@ Efectos secundarios problemáticos identificados en el código actual:
 
 Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo resultado dado el mismo input para que la re-ejecución produzca resultados coherentes. Por ejemplo, el acceso a recursos externos mutables —APIs de Reddit que pueden retornar posts diferentes en dos llamadas distintas, o archivos en disco que pueden haber sido modificados— introduce no-determinismo que puede causar inconsistencias difíciles de depurar: la re-ejecución de una tarea fallida podría incorporar datos distintos a los de la ejecución original, corrompiendo el resultado final de forma silenciosa.
 
-### 5. Preguntas y Respuestas.
 
+## Ejercicio 2 - Manejo de Excepciones
+- ¿Qué pasaría si dejaran propagar la excepción?
+    Si dejamos que una excepción se propague sin atraparla dentro de la función del worker, un solo feed fallido rompería todo el programa: Spark asume que la tarea falló. Como es tolerante a fallos, va a reintentar ejecutar esa misma tarea varias veces. Y si los reintentos vuelven a fallar, al superar el límite de intentos, Spark aborta el job completo.
+
+## Ejercicio 3 - Paralelizar cómputo de entidades
 - reduceByKey es una barrera de sincronización. ¿Qué ocurre en el cluster en ese punto? ¿Por qué es inevitable para este problema?
-    - reduceByKey es una acción, lo que significa que funciona como trigger para la evaluacion de todas las **transformaciones** que hubo anteriormente (hasta el `cache()` anterior). Es inevitable para la implementación elegida porque se guardan las NamedEntities como una tupla 
+    reduceByKey es una acción, lo que significa que funciona como trigger para la evaluacion de todas las **transformaciones** que hubo anteriormente (hasta el `cache()` anterior). Es inevitable para la implementación elegida porque se guardan las NamedEntities como una tupla 
     ```Scala 
         (NamedEntity, 1)
         //Clave    , Valor 
@@ -118,12 +122,42 @@ Siguiendo el problema de tareas fallidas, las funciones deben producir el mismo 
     luego el reduceByKey los agrupara por claves bajo la operación de la suma, que es la idea elemental de la implementación, unificar las instancias mediante sumar unidades por cada ocurrencia
 
 - ¿Qué restricciones debe cumplir la función que se le pasa a reduceByKey? Piensen en conmutatividad y asociatividad.
-    - Lo que debe cumplir es que sea una función iterable y conmutativa 
+    - Lo que debe cumplir es que sea una función que reduzca el conjunto del dominio. Ademas debe ser asociativa y conmutativa.
 
-    > Merge the values for each key using an associative and commutative reduce function.   -Documentación de Apache Spark
+    > "Merge the values for each key using an associative and commutative reduce function."   -Documentación de Apache Spark
 
+- ¿Dónde se hace la lectura del diccionario de entidades? ¿En el driver o los workers?
+    La lectura de los diccionarios se hace en el **Driver** por varios motivos.
+        1. Podriamos imaginar que mandamos una *eneava* parte del diccionario a cada worker, que lo coleccionen y lo junten, se lo manden a cada entre sí por broadcast. Esta solución es MUY rebuscada y no aplica a las dimensiones del diccionario del proyecto.
+        2. Podriamos hacer que cada worker lea el diccionario individualmente. Tendría 2 problemas esto, si durante la ejecución del driver se actualiza el diccionario los workers jamás se enterarían. El segundo problema es que cada worker tendría que hacer una misma tarea, siendo overhead importante a medida que crezca lacantidad de workers.
 
-#### Ejercicio 5 - Cache
+        Por eso adoptamos la decisión que lo haga el driver y se lo pase a los workers por broadcast
+
+## Ejercicio 4 - Accumulators
+
+- ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
+
+    Porque los Accumulators se modifican concurrentemente por medio de los distintos workers. De igual manera, la API de Spark le prohíbe físicamente el acceso al worker al valor del acumulador. Si intentáramos basar una decisión lógica (un if) en esa variable durante una transformación, estaríamos dependiendo de una condición que puede incrementarse en cualquier momento por otro worker.
+
+- ¿En qué momento del pipeline está disponible el valor de un Accumulator para ser leído por el driver? 
+
+    Las decisiones lógicas basadas en estos valores solo deben ser tomadas por el driver, de forma centralizada, y únicamente después de que haya finalizado una acción terminal (como collect o count), asegurando que el valor ya es estable y final. Esto se debe a la evaluación perezosa (lazy evaluation) de Spark. Solo cuando una acción fuerza la ejecución del pipeline, los workers realizan el cómputo real, suman sus valores locales y, al terminar, envían el resultado consolidado de vuelta al driver para que pueda ser leído. 
+
+- Métricas
+    - Versión no paralelizada
+    [info] Time to get post counts: 20.113 seconds
+    [info] Time to detect entities: 0.017 seconds
+    [info] Time to count entity types: 0.002 seconds
+
+    - Version con Spark
+    [info] Time to get post counts: 6.054 seconds
+    [info] Time to detect entities: 0.033 seconds
+    [info] Time to count entity types: 0.016 seconds
+
+    Spark redujo el tiempo total de ejecución de 20 a 6 segundos al acelerar las descargas. Por otro lado, el procesamiento del texto demoró muy poco en ambas versiones por el bajo volumen de datos.
+    Esta mejora ocurre porque Spark paraleliza las peticiones HTTP, eliminando el cuello de botella secuencial de la red.
+
+## Ejercicio 5 - Cache
 
 - ¿Qué ocurriría si no llamaran a cache()? ¿Cuántas veces se ejecutaría la descarga de feeds?
 
