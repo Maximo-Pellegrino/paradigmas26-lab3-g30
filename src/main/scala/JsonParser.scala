@@ -16,22 +16,23 @@ object JsonParser {
       val json     = parse(jsonContent)
       val children = (json \ "data" \ "children").extract[List[JValue]]
 
-      children.flatMap { child =>
+      children.map { child =>
         try {
           val data     = child \ "data"
           val title    = (data \ "title").extract[String]
           val selftext = (data \ "selftext").extract[String]
           Right(Post(title, selftext))
         } catch {
-          case _: Exception =>
+          case _: Exception => {
             println(s"Warning: Failed to parse posts from '${subscription.name}' (${subscription.url})")
             Left("Post fallido")
+          }
         }
-      }
-    } catch {
+      } 
+    }catch {
       case _: Exception =>
         println(s"Warning: Failed to parse posts from '${subscription.name}' (${subscription.url})")
-        Left("Post fallido")
+        List(Left("Post fallido"))
     }
   }
 }
